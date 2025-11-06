@@ -1,11 +1,10 @@
 pipeline {
   agent any
   environment {
-    HUB = "rahulr143" // your Docker Hub username
-    DOCKERHUB_USER = credentials('dockerhub-user')
-    DOCKERHUB_PASS = credentials('dockerhub-pass')
+    HUB = "rahulr143"
+    DOCKERHUB = credentials('dockerhub-user')
     APP_TAG = "v${env.BUILD_NUMBER}"
-  }
+}
 
   stages {
     stage('Checkout Code') {
