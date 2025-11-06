@@ -1,4 +1,3 @@
-{"id":"51244","variant":"code","title":"Jenkinsfile (final, blue–green with Docker Hub + rollback)"}
 pipeline {
   agent any
 
