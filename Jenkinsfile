@@ -21,16 +21,26 @@ pipeline {
       }
     }
 
-    stage('Build Docker Images') {
+   stage('Build Docker Images (Parallel)') {
+  parallel {
+    stage('Backend Build') {
       steps {
         sh '''
-          set -euxo pipefail
-          echo "[INFO] Building Docker images..."
-          docker build -t backend:local ./backend
-          docker build -t frontend:local ./frontend
+          echo "[INFO] Building Backend..."
+          docker build --cache-from backend:local -t backend:local ./backend
         '''
       }
     }
+    stage('Frontend Build') {
+      steps {
+        sh '''
+          echo "[INFO] Building Frontend..."
+          docker build --cache-from frontend:local -t frontend:local ./frontend
+        '''
+      }
+    }
+  }
+}
 
     stage('Push to Docker Hub') {
       steps {
