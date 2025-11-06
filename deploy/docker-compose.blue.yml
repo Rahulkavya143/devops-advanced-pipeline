@@ -1,0 +1,9 @@
+services:
+  backend-blue:
+    image: rahulr143/backend:latest
+    ports: ["5001:5000"]
+  frontend-blue:
+    image: rahulr143/frontend:latest
+    environment:
+      - API_URL=http://localhost:5001
+    ports: ["8081:80"]
