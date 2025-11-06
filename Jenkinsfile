@@ -9,7 +9,6 @@ pipeline {
 
   options {
     timestamps()
-    ansiColor('xterm')
   }
 
   stages {
@@ -99,14 +98,12 @@ pipeline {
 
   post {
     failure {
-      node {
-        sh '''
-          echo "[ROLLBACK] Build failed — rolling back to BLUE..."
-          bash deploy/switch-blue-green.sh blue || true
-          cd deploy
-          docker compose -f docker-compose.blue.yml up -d || true
-        '''
-      }
+      sh '''
+        echo "[ROLLBACK] Build failed — rolling back to BLUE..."
+        bash deploy/switch-blue-green.sh blue || true
+        cd deploy
+        docker compose -f docker-compose.blue.yml up -d || true
+      '''
     }
   }
 }
