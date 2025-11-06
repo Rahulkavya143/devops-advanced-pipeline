@@ -5,7 +5,17 @@ pipeline {
     HUB = "rahulr143"
     DOCKERHUB_USER = credentials('dockerhub-user')
     DOCKERHUB_PASS = credentials('dockerhub-pass')
-    APP_TAG = "v${env.BUILD_NUMBER}"
+    APP_TAG = "v${env.BUILD_NUMBER}
+
+    HUB = "rahulr143"                 // your Docker Hub username
+    DOCKERHUB = credentials('dockerhub-user') // Jenkins credential ID (Username + Token)
+    APP_TAG = "v${env.BUILD_NUMBER}"  // unique tag per build
+  }
+
+  options {
+    timestamps()
+    ansiColor('xterm')
+ a5129ce (final: working Jenkinsfile with unified creds and rollback)
   }
 
   stages {
@@ -90,11 +100,50 @@ pipeline {
       steps {
         sh '''
           echo "[DEPLOY] Starting GREEN environment..."
+
+        sh '''
+          set -euxo pipefail
+          echo "[INFO] Building Docker images..."
+          docker build -t backend:local ./backend
+          docker build -t frontend:local ./frontend
+        '''
+      }
+    }
+
+    stage('Push to Docker Hub') {
+      steps {
+        sh '''
+          set -euxo pipefail
+          echo "[INFO] Logging into Docker Hub..."
+          echo "$DOCKERHUB_PSW" | docker login -u "$DOCKERHUB_USR" --password-stdin
+
+          echo "[INFO] Tagging and pushing images..."
+          docker tag backend:local ${HUB}/backend:${APP_TAG}
+          docker tag frontend:local ${HUB}/frontend:${APP_TAG}
+
+          docker push ${HUB}/backend:${APP_TAG}
+          docker push ${HUB}/frontend:${APP_TAG}
+
+          docker tag ${HUB}/backend:${APP_TAG} ${HUB}/backend:latest
+          docker tag ${HUB}/frontend:${APP_TAG} ${HUB}/frontend:latest
+
+          docker push ${HUB}/backend:latest
+          docker push ${HUB}/frontend:latest
+        '''
+      }
+    }
+
+    stage('Deploy GREEN Environment') {
+      steps {
+        sh '''
+          set -euxo pipefail
+          echo "[INFO] Deploying GREEN environment..."
+ a5129ce (final: working Jenkinsfile with unified creds and rollback)
           cd deploy
           docker compose -f docker-compose.green.yml up -d
         '''
       }
-    }
+}
 
     stage('Health Check GREEN') {
       when { expression { env.SKIP_PIPELINE != "true" } }
@@ -148,3 +197,4 @@ pipeline {
     }
   }
 }
+a5129ce (final: working Jenkinsfile with unified creds and rollback)
