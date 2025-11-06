@@ -2,9 +2,9 @@ pipeline {
   agent any
 
   environment {
-    HUB = "rahulr143"                       // Docker Hub username
-    DOCKERHUB = credentials('dockerhub-user') // Jenkins credential ID
-    APP_TAG = "v${env.BUILD_NUMBER}"        // unique tag per build
+    HUB = "rahulr143"                        // Docker Hub username
+    DOCKERHUB = credentials('dockerhub-user') // Single Jenkins credential (Username + Token)
+    APP_TAG = "v${env.BUILD_NUMBER}"         // unique tag per build
   }
 
   options {
@@ -69,7 +69,7 @@ pipeline {
       steps {
         sh '''
           set -euxo pipefail
-          echo "[INFO] Performing health check on GREEN environment..."
+          echo "[INFO] Checking GREEN environment health..."
           sleep 5
           curl -fsS http://localhost:8082 > /dev/null
           echo "[SUCCESS] GREEN environment is healthy."
@@ -98,12 +98,14 @@ pipeline {
 
   post {
     failure {
-      sh '''
+      node {
         echo "[ROLLBACK] Build failed — rolling back to BLUE..."
-        bash deploy/switch-blue-green.sh blue || true
-        cd deploy
-        docker compose -f docker-compose.blue.yml up -d || true
-      '''
+        sh '''
+          bash deploy/switch-blue-green.sh blue || true
+          cd deploy
+          docker compose -f docker-compose.blue.yml up -d || true
+        '''
+      }
     }
   }
 }
