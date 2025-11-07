@@ -2,16 +2,10 @@ pipeline {
   agent any
 
   environment {
-    // 🔐 Create a Jenkins credential (Kind: "Username with password") with ID: dockerhub-user
-    // Username: rahulr143
-    // Password: <your Docker Hub access token or password>
-    HUB      = "rahulr143"
-    DOCKERHUB = credentials('dockerhub-user')
-    APP_TAG  = "v${env.BUILD_NUMBER}"   // unique tag per build
-  }
-
-  options {
-    timestamps()
+    HUB = "rahulr143"                // Docker Hub username
+    DOCKERHUB_USER = credentials('dockerhub-user')
+    DOCKERHUB_PASS = credentials('dockerhub-pass')
+    APP_TAG = "v${env.BUILD_NUMBER}"
   }
 
   stages {
@@ -21,116 +15,143 @@ pipeline {
       }
     }
 
-   stage('Build Docker Images (Parallel)') {
-  parallel {
-    stage('Backend Build') {
+    stage('Check for Changes') {
       steps {
-        sh '''
-          echo "[INFO] Building Backend..."
-          docker build --cache-from backend:local -t backend:local ./backend
-        '''
-      }
-    }
-    stage('Frontend Build') {
-      steps {
-        sh '''
-          echo "[INFO] Building Frontend..."
-          docker build --cache-from frontend:local -t frontend:local ./frontend
-        '''
-      }
-    }
-  }
-}
-
-    stage('Push to Docker Hub') {
-      steps {
-        sh '''
-          set <(true)   # no-op to ensure POSIX shell
-          set -euxo pipefail
-          echo "[INFO] Logging into Docker Hub..."
-          echo "$DOCKERHUB_PSW" | docker login -u "$DOCKERHUB_USR" --password-stdin
-
-          echo "[INFO] Tagging + pushing images..."
-          docker tag  backend:local   ${HUB}/backend:${APP_TAG}
-          docker tag  frontend:local  ${HUB}/frontend:${APP_TAG}
-
-          docker push ${HUB}/backend:${APP_TAG}
-          docker push ${HUB}/frontend:${APP_TAG}
-
-          docker tag  ${HUB}/backend:${APP_TAG}  ${HUB}/backend:stage
-          docker tag  ${HUB}/frontend:${APP_TAG} ${HUB}/frontend:stage
-
-          docker push ${HUB}/backend:stage
-          docker push ${HUB}/frontend:stage
-        '''
-      }
-    }
-
-    stage('Deploy GREEN Environment') {
-      steps {
-        sh '''
-          set -euxo pipefail
-          echo "[INFO] Deploying GREEN environment on port 8082/5002..."
-          cd deploy
-          # update images to the just-built :stage tags
-          sed -i 's|image: .*/backend:.*|image: '"${Hawks__UNSAFE:-$HUB}"'/backend:stage|'   docker-compose.green.yml
-          sed -i 's|image: .*/frontend:.*|image: '"${Hawks__UNSAFE:-$HUB}"'/frontend:stage|' docker-compose.green.yml
-
-          docker compose -f docker-compose.green.yml pull
-          docker compose -f docker-compose.green.yml up -d --remove-orphans
-        '''
-      }
-      post {
-        unsuccessful {
-          // Only rollback if deploy stage itself fails (build/push failures don't need rollback)
-          sh '''
-            echo "[ROLLBACK] Deploy failed — switching traffic back to BLUE (if needed) and ensuring BLUE is up"
-            bash deploy/switch-blue-green.sh blue || true
-            cd deploy
-            docker compose -f docker-compose.blue.yml up -d || true
-          '''
+        script {
+          def changes = sh(returnStdout: true, script: "git diff --name-only HEAD~1 HEAD || true").trim()
+          if (changes == "") {
+            echo "✅ No changes detected. Skipping build & deploy."
+            currentBuild.result = 'SUCCESS'
+            skipRemainingStages = true
+          } else {
+            echo "🔄 Changes detected, continuing build..."
+          }
         }
       }
     }
 
-    stage('Health Check GREEN') {
+    stage('Build Docker Images (Parallel)') {
+      when {
+        expression { !env.skipRemainingStages }
+      }
+      parallel {
+        stage('Backend Build') {
+          steps {
+            sh '''
+              set -euxo pipefail
+              echo "[INFO] Building Backend..."
+              export DOCKER_BUILDKIT=1
+              docker pull $HUB/backend:latest || true
+              docker build --cache-from $HUB/backend:latest -t backend:local ./backend
+            '''
+          }
+        }
+
+        stage('Frontend Build') {
+          steps {
+            sh '''
+              set -euxo pipefail
+              echo "[INFO] Building Frontend..."
+              export DOCKER_BUILDKIT=1
+              docker pull $HUB/frontend:latest || true
+              docker build --cache-from $HUB/frontend:latest -t frontend:local ./frontend
+            '''
+          }
+        }
+      }
+    }
+
+    stage('Push to Docker Hub (Parallel)') {
+      when {
+        expression { !env.skipRemainingStages }
+      }
+      parallel {
+        stage('Push Backend') {
+          steps {
+            sh '''
+              echo $DOCKERHUB_PASS | docker login -u $DOCKERHUB_USER --password-stdin
+              docker tag backend:local $HUB/backend:$APP_TAG
+              docker push $HUB/backend:$APP_TAG
+              docker tag $HUB/backend:$APP_TAG $HUB/backend:latest
+              docker push $HUB/backend:latest
+            '''
+          }
+        }
+
+        stage('Push Frontend') {
+          steps {
+            sh '''
+              echo $DOCKERHUB_PASS | docker login -u $DOCKERHUB_USER --password-stdin
+              docker tag frontend:local $HUB/frontend:$APP_TAG
+              docker push $HUB/frontend:$APP_TAG
+              docker tag $HUB/frontend:$APP_TAG $HUB/frontend:latest
+              docker push $HUB/frontend:latest
+            '''
+          }
+        }
+      }
+    }
+
+    stage('Deploy GREEN Environment') {
+      when {
+        expression { !env.skipRemainingStages }
+      }
       steps {
         sh '''
-          set -euxo pipefail
-          echo "[INFO] Health-check GREEN (http://localhost:8082)..."
-          # small grace period for containers to warm up
-          for i in $(seq 1 30); do
-            if curl -fsS http://localhost:8082/ >/dev/null 2>&1; then
-              echo "[SUCCESS] GREEN is healthy"
-              exit 0
-            fi
-            echo "[WAIT] GREEN not ready yet... ($i/30)"
-            sleep 2
-          done
-          echo "[ERROR] GREEN did not become healthy in time"
-          exit 1
+          echo "[DEPLOY] Starting GREEN environment..."
+          cd deploy
+          docker compose -f docker-compose.green.yml up -d --no-recreate
+        '''
+      }
+    }
+
+    stage('Health Check GREEN') {
+      when {
+        expression { !env.skipRemainingStages }
+      }
+      steps {
+        sh '''
+          echo "[CHECK] Checking health of GREEN..."
+          sleep 5
+          curl -f http://localhost:5001 || (echo "❌ GREEN failed!" && exit 1)
         '''
       }
     }
 
     stage('Switch Traffic to GREEN') {
+      when {
+        expression { !env.skipRemainingStages }
+      }
       steps {
         sh '''
-          set -euxo pipefail
-          echo "[INFO] Switching Nginx to GREEN (port 8082)"
+          echo "[SWITCH] Switching traffic to GREEN..."
           bash deploy/switch-blue-green.sh green
         '''
       }
     }
 
-    stage('Stop BLUE (cleanup)') {
+    stage('Stop BLUE (Cleanup)') {
+      when {
+        expression { !env.skipRemainingStages }
+      }
       steps {
         sh '''
-          set -euxo pipefail
-          echo "[INFO] Stopping BLUE containers..."
-          docker compose -f deploy/docker-compose.blue.yml down || true
+          echo "[CLEANUP] Stopping BLUE environment..."
+          cd deploy
+          docker compose -f docker-compose.blue.yml down || true
         '''
       }
+    }
+  }
+
+  post {
+    failure {
+      echo "[ROLLBACK] Build failed — rolling back to BLUE..."
+      sh '''
+        bash deploy/switch-blue-green.sh blue
+        cd deploy
+        docker compose -f docker-compose.blue.yml up -d --no-recreate || true
+      '''
     }
   }
 }
