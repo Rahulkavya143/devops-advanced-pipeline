@@ -39,7 +39,7 @@ pipeline {
             sh '''
               set -euxo pipefail
               echo "[INFO] Building Backend..."
-              docker buildx build --load --cache-from $HUB/backend:latest -t backend:local ./backend
+              docker build --pull --cache-from $HUB/backend:latest -t backend:local ./backend
             '''
           }
         }
@@ -49,7 +49,7 @@ pipeline {
             sh '''
               set -euxo pipefail
               echo "[INFO] Building Frontend..."
-              docker buildx build --load --cache-from $HUB/frontend:latest -t frontend:local ./frontend
+              docker build --pull --cache-from $HUB/frontend:latest -t frontend:local ./frontend
             '''
           }
         }
@@ -136,7 +136,6 @@ pipeline {
   post {
     failure {
       echo "[ROLLBACK] Build failed — rolling back to BLUE..."
-
       script {
         dir("deploy") {
           sh """
