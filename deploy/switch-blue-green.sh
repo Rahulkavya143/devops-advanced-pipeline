@@ -1,8 +1,14 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -e
-TARGET=$1  # "blue" or "green"
-if [ "$TARGET" = "green" ]; then PORT=8082; else PORT=8081; fi
-sudo sed -i "s|proxy_pass http://localhost:[0-9]\+|proxy_pass http://localhost:${PORT}|" /etc/nginx/sites-available/devops-proxy
-sudo nginx -t
-sudo systemctl reload nginx
-echo "✅ Switched live traffic to $TARGET (port $PORT)"
+
+ENV=$1
+echo "Switching traffic to $ENV..."
+
+if [ "$ENV" = "green" ]; then
+  docker exec nginx-container sh -c "cp /etc/nginx/conf.d/green.conf /etc/nginx/conf.d/default.conf && nginx -s reload"
+  echo "✅ Switched live traffic to GREEN (port 5001)"
+else
+  docker exec nginx-container sh -c "cp /etc/nginx/conf.d/blue.conf /etc/nginx/conf.d/default.conf && nginx -s reload"
+  echo "✅ Switched live traffic to BLUE (port 8081)"
+fi
+
