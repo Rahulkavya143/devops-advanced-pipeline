@@ -133,17 +133,18 @@ pipeline {
     }
   }
 
-post {
-  failure {
-    echo "[ROLLBACK] Build failed — rolling back to BLUE..."
+  post {
+    failure {
+      echo "[ROLLBACK] Build failed — rolling back to BLUE..."
 
-    script {
-      dir("deploy") {
-        sh """
-          echo '[ROLLBACK] Switching back to BLUE...'
-          bash switch-blue-green.sh blue
-          docker compose -f docker-compose.blue.yml up -d || true
-        """
+      script {
+        dir("deploy") {
+          sh """
+            echo '[ROLLBACK] Switching back to BLUE...'
+            bash switch-blue-green.sh blue
+            docker compose -f docker-compose.blue.yml up -d || true
+          """
+        }
       }
     }
   }
