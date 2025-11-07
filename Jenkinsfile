@@ -42,7 +42,8 @@ pipeline {
               set -euxo pipefail
               echo "[INFO] Building Backend..."
               export DOCKER_BUILDKIT=1
-              docker build --pull --cache-from $HUB/backend:latest -t backend:local ./backend
+              docker pull $HUB/backend:latest || true
+              docker build --cache-from $HUB/backend:latest -t backend:local ./backend
             '''
           }
         }
@@ -53,7 +54,8 @@ pipeline {
               set -euxo pipefail
               echo "[INFO] Building Frontend..."
               export DOCKER_BUILDKIT=1
-              docker build --pull --cache-from $HUB/frontend:latest -t frontend:local ./frontend
+              docker pull $HUB/frontend:latest || true
+              docker build --cache-from $HUB/frontend:latest -t frontend:local ./frontend
             '''
           }
         }
@@ -99,7 +101,7 @@ pipeline {
         sh '''
           echo "[DEPLOY] Starting GREEN environment..."
           cd deploy
-          docker compose -f docker-compose.green.yml up -d
+          docker compose -f docker-compose.green.yml up -d --no-recreate
         '''
       }
     }
@@ -154,7 +156,7 @@ pipeline {
           sh '''
             bash deploy/switch-blue-green.sh blue
             cd deploy
-            docker compose -f docker-compose.blue.yml up -d || true
+            docker compose -f docker-compose.blue.yml up -d --no-recreate || true
           '''
         }
       }
