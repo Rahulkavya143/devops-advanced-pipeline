@@ -2,7 +2,7 @@ pipeline {
   agent any
 
   environment {
-    HUB = "rahulr143"                // Your Docker Hub username
+    HUB = "rahulr143"
     DOCKERHUB_USER = credentials('dockerhub-user')
     DOCKERHUB_PASS = credentials('dockerhub-pass')
     APP_TAG = "v${env.BUILD_NUMBER}"
@@ -32,18 +32,14 @@ pipeline {
     }
 
     stage('Build Docker Images (Parallel)') {
-      when {
-        expression { env.SKIP_PIPELINE != "true" }
-      }
+      when { expression { env.SKIP_PIPELINE != "true" } }
       parallel {
         stage('Backend Build') {
           steps {
             sh '''
               set -euxo pipefail
               echo "[INFO] Building Backend..."
-              export DOCKER_BUILDKIT=1
-              docker pull $HUB/backend:latest || true
-              docker build --cache-from $HUB/backend:latest -t backend:local ./backend
+              docker buildx build --load --cache-from $HUB/backend:latest -t backend:local ./backend
             '''
           }
         }
@@ -53,9 +49,7 @@ pipeline {
             sh '''
               set -euxo pipefail
               echo "[INFO] Building Frontend..."
-              export DOCKER_BUILDKIT=1
-              docker pull $HUB/frontend:latest || true
-              docker build --cache-from $HUB/frontend:latest -t frontend:local ./frontend
+              docker buildx build --load --cache-from $HUB/frontend:latest -t frontend:local ./frontend
             '''
           }
         }
@@ -63,9 +57,7 @@ pipeline {
     }
 
     stage('Push to Docker Hub (Parallel)') {
-      when {
-        expression { env.SKIP_PIPELINE != "true" }
-      }
+      when { expression { env.SKIP_PIPELINE != "true" } }
       parallel {
         stage('Push Backend') {
           steps {
@@ -94,22 +86,18 @@ pipeline {
     }
 
     stage('Deploy GREEN Environment') {
-      when {
-        expression { env.SKIP_PIPELINE != "true" }
-      }
+      when { expression { env.SKIP_PIPELINE != "true" } }
       steps {
         sh '''
           echo "[DEPLOY] Starting GREEN environment..."
           cd deploy
-          docker compose -f docker-compose.green.yml up -d --no-recreate
+          docker compose -f docker-compose.green.yml up -d
         '''
       }
     }
 
     stage('Health Check GREEN') {
-      when {
-        expression { env.SKIP_PIPELINE != "true" }
-      }
+      when { expression { env.SKIP_PIPELINE != "true" } }
       steps {
         sh '''
           echo "[CHECK] Checking health of GREEN..."
@@ -123,25 +111,22 @@ pipeline {
     }
 
     stage('Switch Traffic to GREEN') {
-      when {
-        expression { env.SKIP_PIPELINE != "true" }
-      }
+      when { expression { env.SKIP_PIPELINE != "true" } }
       steps {
         sh '''
+          cd deploy
           echo "[SWITCH] Switching traffic to GREEN..."
-          bash deploy/switch-blue-green.sh green
+          bash switch-blue-green.sh green
         '''
       }
     }
 
     stage('Stop BLUE (Cleanup)') {
-      when {
-        expression { env.SKIP_PIPELINE != "true" }
-      }
+      when { expression { env.SKIP_PIPELINE != "true" } }
       steps {
         sh '''
-          echo "[CLEANUP] Stopping BLUE environment..."
           cd deploy
+          echo "[CLEANUP] Stopping BLUE environment..."
           docker compose -f docker-compose.blue.yml down || true
         '''
       }
@@ -154,9 +139,9 @@ pipeline {
         echo "[ROLLBACK] Build failed — rolling back to BLUE..."
         node {
           sh '''
-            bash deploy/switch-blue-green.sh blue
             cd deploy
-            docker compose -f docker-compose.blue.yml up -d --no-recreate || true
+            bash switch-blue-green.sh blue
+            docker compose -f docker-compose.blue.yml up -d || true
           '''
         }
       }
